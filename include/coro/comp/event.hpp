@@ -35,104 +35,95 @@ namespace coro
  * @note lab4 and lab5 are free designed lab, leave the interfaces that the test case will use,
  * and then, enjoy yourself!
  */
-class context;
 
 namespace detail
 {
 // TODO[lab4a]: Add code that you don't want to use externally in namespace detail
+class event_base {
+using awaiter_ptr = void*;
+public:
+    struct base_awaiter
+    {
+        base_awaiter(event_base& event) noexcept : m_event(event), m_ctx(local_context()){}
+
+        auto await_ready() noexcept -> bool;
+
+        auto await_suspend(std::coroutine_handle<> handle) noexcept -> bool;
+
+        inline auto await_resume() noexcept -> void {
+            m_ctx.unregister_wait();
+        }
+
+        event_base&                m_event;
+        base_awaiter*              m_next{nullptr};
+        coro::context&       m_ctx;
+        std::coroutine_handle<>    m_await_coro{nullptr};
+    };
+
+    event_base(bool initial_set = false) noexcept : m_waiter_head(initial_set ? this : nullptr) {}
+    ~event_base() noexcept = default;
+
+    event_base(const event_base&)               = delete;
+    event_base(event_base&&)                    = delete;
+    event_base& operator=(const event_base&)    = delete;
+    event_base& operator=(event_base&&)         = delete;
+
+public:
+    inline auto is_set() const noexcept -> bool { return m_waiter_head.load(std::memory_order_acquire) == this; }
+
+    auto registe_awaiter(base_awaiter* awaiter) noexcept -> bool;
+
+protected:
+    auto _resume_all_awaiter(base_awaiter* awaiter) noexcept -> void;
+
+    auto _set_state() noexcept -> void;
+
+private:
+    std::atomic<awaiter_ptr> m_waiter_head{nullptr};
+};
+
 }; // namespace detail
 
 // TODO[lab4a]: This event is an example to make complie success,
 // You should delete it and add your implementation, I don't care what you do,
 // but keep the function set() and wait()'s declaration same with example.
-class base_awaiter;
 
-class event_base {
-public:
-    std::atomic<bool> m_is_set{false};
-    std::atomic<base_awaiter*> m_head{nullptr};
-
-};
-
-class base_awaiter {
-
-public:
-    event_base& m_event;
-    context* const m_ctx;
-    base_awaiter* m_next{nullptr};
-    std::coroutine_handle<> m_handle{nullptr};
-
-    base_awaiter(event_base& ev) noexcept : m_event(ev) , m_ctx(detail::linfo.ctx){}
-
-    auto await_ready() -> bool {
-        m_ctx->register_wait();
-        if (m_event.m_is_set) {
-            return true;
-        }
-        return false;
-    }
-    auto await_suspend(std::coroutine_handle<> handle) -> void {
-        m_handle = handle;
-        base_awaiter* old_head = m_event.m_head;
-        do
-        {
-            m_next = old_head;
-        } while(!m_event.m_head.compare_exchange_strong(old_head, this, std::memory_order_acq_rel));
-    }
-};
-
+using coro::detail::event_base;
 template<typename return_type = void>
 class event : public event_base, public detail::container<return_type>
 {
-    // Just make compile success
-    class awaiter : public base_awaiter
+private:
+    struct awaiter : public event_base::base_awaiter
     {
-    public:
-        awaiter(event<return_type>& ev) noexcept : base_awaiter(ev) {}
-        auto await_resume() -> return_type {
-            m_ctx->unregister_wait();
-            return static_cast<event<return_type>&>(m_event).result();
+        using base_awaiter::base_awaiter;
+        auto await_resume() -> decltype(auto) {
+            detail::event_base::base_awaiter::await_resume();
+            return static_cast<event&>(m_event).result();
         }
     };
 
 public:
-    auto wait() noexcept -> awaiter { return awaiter(std::ref(*this)); } // return awaitable
+    [[CORO_AWAIT_HINT]] inline auto wait() noexcept -> awaiter { return awaiter(std::ref(*this)); } // return awaitable
 
     template<typename value_type>
-    auto set(value_type&& value) noexcept -> void
-    {
-        m_is_set.store(true, std::memory_order_acq_rel);
+    auto set(value_type&& value) noexcept -> void {
         this->return_value(std::forward<value_type>(value));
-        base_awaiter* curr = m_head.exchange(nullptr, std::memory_order_acquire);
-        while (curr != nullptr) {
-            base_awaiter* next = curr->m_next;
-            curr->m_ctx->submit_task(curr->m_handle);
-            curr = next;
-        }
+        _set_state();
     }
+
 };
 
 template<>
 class event<> : public event_base {
 private:
-    // Just make compile success
-    class awaiter : public base_awaiter
+    struct awaiter : public base_awaiter
     {
-    public:
-        awaiter(event_base& ev) noexcept : base_awaiter(ev) {}
-
-        auto await_resume() -> void {m_ctx->unregister_wait(); }
+        using base_awaiter::base_awaiter;
     };
 public:
-    auto wait() noexcept -> awaiter{ return awaiter(std::ref(*this)); } // return awaitable
+    [[CORO_AWAIT_HINT]] auto wait() noexcept -> awaiter{ return awaiter(std::ref(*this)); } // return awaitable
     auto set() noexcept -> void {
-        m_is_set.store(true, std::memory_order_acq_rel);
-        base_awaiter* curr = m_head.exchange(nullptr, std::memory_order_acquire);
-        while(curr != nullptr) {
-            base_awaiter* next = curr->m_next;
-            curr->m_ctx->submit_task(curr->m_handle);
-            curr = next;
-        }
+        _set_state();
     }
 };
 
