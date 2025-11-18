@@ -38,6 +38,12 @@ namespace coro
  * you want, such as function and class definitions, even member variables.
  */
 
+enum class taskState {
+    normal,
+    detach,
+    end
+};
+
 template<typename return_type = void>
 class task;
 
@@ -49,14 +55,31 @@ struct promise_base
     ~promise_base()         = default;
 
     constexpr auto initial_suspend() noexcept { return std::suspend_always{}; }
+    friend class final_awaiter;
+    struct final_awaiter
+    {
+        constexpr bool await_ready() const noexcept {return false;}
+        template<typename promise_type>
+        auto await_suspend(std::coroutine_handle<promise_type> h) noexcept -> std::coroutine_handle<>
+        {
+            auto& promise = h.promise();
+            return promise.m_continue_coro != nullptr ? promise.m_continue_coro : std::noop_coroutine();
+        }
+        void await_resume() noexcept {};
+        
+    };
 
-    [[CORO_TEST_USED(lab1)]] auto final_suspend() noexcept -> std::suspend_always
+    [[CORO_TEST_USED(lab1)]] auto final_suspend() noexcept -> final_awaiter
     {
         // TODO[lab1]: Add you codes
         // Return suspend_always is incorrect,
         // so you should modify the return type and define new awaiter to return
         return {};
     }
+
+    auto continuation(std::coroutine_handle<> handle) -> void {m_continue_coro = handle;}
+    auto setState(taskState state) -> void {m_state = state;}
+    auto getState() -> decltype(auto) {return m_state;}
 
 #ifdef ENABLE_MEMORY_ALLOC
     void* operator new(std::size_t size)
@@ -74,6 +97,9 @@ struct promise_base
 public:
     int promise_id{0};
 #endif // DEBUG
+protected:
+    std::coroutine_handle<> m_continue_coro{};
+    taskState m_state{taskState::normal};
 };
 
 template<typename return_type>
@@ -169,6 +195,7 @@ public:
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> std::coroutine_handle<>
         {
             // TODO[lab1]: Add you codes
+            m_coroutine.promise().continuation(awaiting_coroutine);
             return m_coroutine;
         }
 
@@ -235,6 +262,9 @@ public:
     [[CORO_TEST_USED(lab1)]] auto detach() -> void
     {
         // TODO[lab1]: Add you codes
+        auto& promise = m_coroutine.promise();
+        promise.setState(taskState::detach);
+        m_coroutine = nullptr;
     }
 
     auto operator co_await() const& noexcept
@@ -277,7 +307,13 @@ using coroutine_handle = std::coroutine_handle<detail::promise_base>;
  */
 [[CORO_TEST_USED(lab1)]] inline auto clean(std::coroutine_handle<> handle) noexcept -> void
 {
-    // TODO[lab1]: Add you codes
+    //TODO[lab1]: Add you codes
+    auto specific_handle = coroutine_handle::from_address(handle.address());
+    auto& promise = specific_handle.promise();
+    auto state = promise.getState();
+    if (state == taskState::detach) {
+        handle.destroy();
+    }
 }
 
 namespace detail
