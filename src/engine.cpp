@@ -66,11 +66,12 @@ auto engine::schedule() noexcept -> coroutine_handle<>
 auto engine::submit_task(coroutine_handle<> handle) noexcept -> void
 {
     // TODO[lab2a]: Add you codes
+    assert(handle != nullptr && "engine get nullptr task handle");
     if (m_task_queue.was_full()) {
         return;
     }
     m_task_queue.push(handle);
-    m_upxy.write_eventfd(1);
+    wake_up();
 }
 
 auto engine::exec_one_task() noexcept -> void

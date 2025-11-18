@@ -7,13 +7,20 @@ auto scheduler::init_impl(size_t ctx_cnt) noexcept -> void
     // TODO[lab2b]: Add you codes
     detail::init_meta_info();
     m_ctx_cnt = ctx_cnt;
+    m_ctx_running_num = m_ctx_cnt;
     m_ctxs    = detail::ctx_container{};
     m_ctxs.reserve(m_ctx_cnt);
     for (int i = 0; i < m_ctx_cnt; i++)
     {
         m_ctxs.emplace_back(std::make_unique<context>());
     }
+    m_ctx_flags.reserve(m_ctx_cnt);
+    //for (size_t i = 0; i < m_ctx_cnt; i++) {
+    //    m_ctx_flags.emplace_back(std::make_unique<std::atomic<int>>(1));
+    //}
     m_dispatcher.init(m_ctx_cnt, &m_ctxs);
+
+    m_ctx_stop_flag =     std::vector<coro::detail::atomic_ref_wrapper<int>>(m_ctx_cnt, detail::atomic_ref_wrapper<int>{.val = 1});
 
 #ifdef ENABLE_MEMORY_ALLOC
     coro::allocator::memory::mem_alloc_config config;
@@ -24,14 +31,69 @@ auto scheduler::init_impl(size_t ctx_cnt) noexcept -> void
 
 auto scheduler::loop_impl() noexcept -> void
 {
-    // TODO[lab2b]: Add you codes
+    start_impl();
+    for (int i = 0; i < m_ctx_cnt; i++)
+    {
+        m_ctxs[i]->join();
+    }
 }
 
+
+/*
+auto scheduler::loop_impl() noexcept -> void
+{
+    // TODO[lab2b]: Add you codes
+    stop_impl();
+    std::for_each(m_ctxs.begin(), m_ctxs.end(),
+         [](auto& ctx) { ctx->start(); });
+    std::for_each(m_ctxs.begin(), m_ctxs.end(),
+         [](auto& ctx) { ctx->join(); });
+}
+*/
+
+/*
 auto scheduler::stop_impl() noexcept -> void
 {
     // TODO[lab2b]: example function
     // This is an example which just notify stop signal to each context,
     // if you don't need this, function just ignore or delete it
+    for (size_t i = 0; i < m_ctx_cnt; i++) {
+        auto stopCb = [&, i] () {
+            auto cnt = m_ctx_flags[i]->fetch_and(0, std::memory_order_acq_rel);
+            //log::warn("sub cnt is{}", cnt);
+            //log::warn("m_ctx_running_num  is{}", this->m_ctx_running_num.load());
+            if (this->m_ctx_running_num.fetch_sub(cnt) == cnt) {
+                log::warn("start notify_stop");
+                for (size_t i = 0; i < m_ctx_cnt; i++) {
+                    this->m_ctxs[i]->notify_stop();
+                }
+            }
+        };
+        m_ctxs[i]->set_stop(stopCb);
+    }
+}*/
+
+auto scheduler::start_impl() noexcept -> void
+{
+    for (int i = 0; i < m_ctx_cnt; i++)
+    {
+        m_ctxs[i]->set_stop(
+            [&, i]()
+            {
+                //auto cnt = m_ctx_flags[i]->fetch_and(0, memory_order_acq_rel);
+                auto cnt = std::atomic_ref(this->m_ctx_stop_flag[i].val).fetch_and(0, memory_order_acq_rel);
+                if (this->m_ctx_running_num.fetch_sub(cnt) == cnt)
+                {
+                    // Stop token decrease to zero, it's time to close all context
+                    this->stop_impl();
+                }
+            });
+        m_ctxs[i]->start();
+    }
+}
+
+auto scheduler::stop_impl() noexcept -> void
+{
     for (int i = 0; i < m_ctx_cnt; i++)
     {
         m_ctxs[i]->notify_stop();
@@ -42,6 +104,11 @@ auto scheduler::submit_task_impl(std::coroutine_handle<> handle) noexcept -> voi
 {
     // TODO[lab2b]: Add you codes
     size_t ctx_id = m_dispatcher.dispatch();
+    //m_ctx_running_num.fetch_add(1 - m_ctx_flags[ctx_id]->fetch_or(1, memory_order_acq_rel)
+    //    , memory_order_acq_rel);
+    m_ctx_running_num.fetch_add(1 - std::atomic_ref<int>{m_ctx_stop_flag[ctx_id].val}.fetch_or(1, memory_order_acq_rel)
+        , memory_order_acq_rel);
     m_ctxs[ctx_id]->submit_task(handle);
 }
+
 }; // namespace coro

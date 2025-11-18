@@ -51,6 +51,8 @@ using detail::linfo;
 
 using engine = detail::engine;
 
+using cb = std::function<void()>;
+
 class scheduler;
 
 /**
@@ -83,6 +85,8 @@ public:
      *
      */
     [[CORO_TEST_USED(lab2b)]] auto notify_stop() noexcept -> void;
+
+    inline auto set_stop(cb stopCb) noexcept -> void { m_stop_cb = stopCb; }
 
     /**
      * @brief wait work thread stop
@@ -142,6 +146,10 @@ private:
     CORO_ALIGN engine   m_engine;
     unique_ptr<jthread> m_job;
     ctx_id              m_id;
+
+    atomic<int> m_register_num{0};
+
+    cb m_stop_cb{nullptr};
 
     // TODO[lab2b]: Add more member variables if you need
 };

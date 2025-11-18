@@ -167,6 +167,8 @@ public:
 
     // TODO[lab2a]: Add more function if you need
 
+    inline auto wake_up() noexcept -> void { m_upxy.write_eventfd(1); }
+
 private:
     uint32_t    m_id;
     uring_proxy m_upxy;

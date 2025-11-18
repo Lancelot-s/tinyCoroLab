@@ -10,6 +10,7 @@
     #include "coro/allocator/memory.hpp"
 #endif
 #include "coro/dispatcher.hpp"
+#include "coro/detail/atomic_helper.hpp"
 
 namespace coro
 {
@@ -66,6 +67,7 @@ private:
     [[CORO_TEST_USED(lab2b)]] auto loop_impl() noexcept -> void;
 
     auto stop_impl() noexcept -> void;
+    auto start_impl() noexcept -> void;
 
     [[CORO_TEST_USED(lab2b)]] auto submit_task_impl(std::coroutine_handle<> handle) noexcept -> void;
 
@@ -73,9 +75,15 @@ private:
 
 private:
     size_t                                              m_ctx_cnt{0};
+    std::atomic_ulong                                   m_ctx_running_num{};
     detail::ctx_container                               m_ctxs;
+    std::vector<std::unique_ptr<std::atomic<int>>> m_ctx_flags;
+    std::vector<coro::detail::atomic_ref_wrapper<int>> m_ctx_stop_flag;
+
+
     detail::dispatcher<coro::config::kDispatchStrategy> m_dispatcher;
     // TODO[lab2b]: Add more member variables if you need
+    std::mutex                                   m_mutex;
 
 #ifdef ENABLE_MEMORY_ALLOC
     // Memory Allocator
