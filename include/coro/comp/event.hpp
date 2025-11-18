@@ -45,30 +45,95 @@ namespace detail
 // TODO[lab4a]: This event is an example to make complie success,
 // You should delete it and add your implementation, I don't care what you do,
 // but keep the function set() and wait()'s declaration same with example.
+class base_awaiter;
+
+class event_base {
+public:
+    std::atomic<bool> m_is_set{false};
+    std::atomic<base_awaiter*> m_head{nullptr};
+
+};
+
+class base_awaiter {
+
+public:
+    event_base& m_event;
+    context* const m_ctx;
+    base_awaiter* m_next{nullptr};
+    std::coroutine_handle<> m_handle{nullptr};
+
+    base_awaiter(event_base& ev) noexcept : m_event(ev) , m_ctx(detail::linfo.ctx){}
+
+    auto await_ready() -> bool {
+        m_ctx->register_wait();
+        if (m_event.m_is_set) {
+            return true;
+        }
+        return false;
+    }
+    auto await_suspend(std::coroutine_handle<> handle) -> void {
+        m_handle = handle;
+        base_awaiter* old_head = m_event.m_head;
+        do
+        {
+            m_next = old_head;
+        } while(!m_event.m_head.compare_exchange_strong(old_head, this, std::memory_order_acq_rel));
+    }
+};
+
 template<typename return_type = void>
-class event
+class event : public event_base, public detail::container<return_type>
 {
     // Just make compile success
-    struct awaiter : detail::noop_awaiter
+    class awaiter : public base_awaiter
     {
-        auto await_resume() -> return_type { return {}; }
+    public:
+        awaiter(event<return_type>& ev) noexcept : base_awaiter(ev) {}
+        auto await_resume() -> return_type {
+            m_ctx->unregister_wait();
+            return static_cast<event<return_type>&>(m_event).result();
+        }
     };
 
 public:
-    auto wait() noexcept -> awaiter { return {}; } // return awaitable
+    auto wait() noexcept -> awaiter { return awaiter(std::ref(*this)); } // return awaitable
 
     template<typename value_type>
     auto set(value_type&& value) noexcept -> void
     {
+        m_is_set.store(true, std::memory_order_acq_rel);
+        this->return_value(std::forward<value_type>(value));
+        base_awaiter* curr = m_head.exchange(nullptr, std::memory_order_acquire);
+        while (curr != nullptr) {
+            base_awaiter* next = curr->m_next;
+            curr->m_ctx->submit_task(curr->m_handle);
+            curr = next;
+        }
     }
 };
 
 template<>
-class event<>
-{
+class event<> : public event_base {
+private:
+    // Just make compile success
+    class awaiter : public base_awaiter
+    {
+    public:
+        awaiter(event_base& ev) noexcept : base_awaiter(ev) {}
+
+        auto await_resume() -> void {m_ctx->unregister_wait(); }
+    };
 public:
-    auto wait() noexcept -> detail::noop_awaiter { return {}; } // return awaitable
-    auto set() noexcept -> void {}
+    auto wait() noexcept -> awaiter{ return awaiter(std::ref(*this)); } // return awaitable
+    auto set() noexcept -> void {
+        m_is_set.store(true, std::memory_order_acq_rel);
+        base_awaiter* curr = m_head.exchange(nullptr, std::memory_order_acquire);
+        while(curr != nullptr) {
+            base_awaiter* next = curr->m_next;
+            curr->m_ctx->submit_task(curr->m_handle);
+            curr = next;
+        }
+    }
 };
 
 /**
