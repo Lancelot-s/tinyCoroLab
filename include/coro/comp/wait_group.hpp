@@ -14,12 +14,14 @@
 #include <coroutine>
 
 #include "coro/detail/types.hpp"
+#include "coro/comp/event.hpp"
+#include "coro/attribute.hpp"
 
 namespace coro
 {
 /**
  * @brief Welcome to tinycoro lab4c, in this part you will build the basic coroutine
- * synchronization component——wait_group by modifing wait_group.hpp and wait_group.cpp.
+ * synchronization componentï¿½ï¿½wait_group by modifing wait_group.hpp and wait_group.cpp.
  * Please ensure you have read the document of lab4c.
  *
  * @warning You should carefully consider whether each implementation should be thread-safe.
@@ -41,13 +43,25 @@ class context;
 class wait_group
 {
 public:
-    explicit wait_group(int count = 0) noexcept {}
+    explicit wait_group(int count = 0) noexcept : m_count(count) {}
 
-    auto add(int count) noexcept -> void {};
+    auto add(int count) noexcept -> void {
+        m_count.fetch_add(count, std::memory_order_release);
+    }
 
-    auto done() noexcept -> void {};
+    auto done() noexcept -> void {
+        if (m_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            m_event.set();
+        }
+    }
 
-    auto wait() noexcept -> detail::noop_awaiter { return {}; };
+    [[CORO_AWAIT_HINT]] auto wait() noexcept -> coro::event<>::awaiter {
+        return coro::event<>::awaiter{std::ref(this->m_event)};
+    }
+
+private:
+    std::atomic<int> m_count{0};
+    coro::event<>    m_event;
 };
 
 }; // namespace coro
