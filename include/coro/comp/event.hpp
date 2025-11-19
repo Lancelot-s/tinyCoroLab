@@ -115,7 +115,7 @@ public:
 
 template<>
 class event<> : public event_base {
-private:
+public:
     struct awaiter : public base_awaiter
     {
         using base_awaiter::base_awaiter;

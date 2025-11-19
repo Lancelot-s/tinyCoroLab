@@ -56,6 +56,10 @@ public:
     }
 
 private:
+    scheduler() noexcept = default;
+    ~scheduler() noexcept = default;
+    CORO_NO_COPY_MOVE(scheduler);
+
     static auto get_instance() noexcept -> scheduler*
     {
         static scheduler sc;
@@ -77,8 +81,8 @@ private:
     size_t                                              m_ctx_cnt{0};
     std::atomic_ulong                                   m_ctx_running_num{};
     detail::ctx_container                               m_ctxs;
-    std::vector<std::unique_ptr<std::atomic<int>>> m_ctx_flags;
-    std::vector<coro::detail::atomic_ref_wrapper<int>> m_ctx_stop_flag;
+    std::vector<std::unique_ptr<std::atomic<int>>>      m_ctx_flags;
+    std::vector<coro::detail::atomic_ref_wrapper<int>>  m_ctx_stop_flag;
 
 
     detail::dispatcher<coro::config::kDispatchStrategy> m_dispatcher;
