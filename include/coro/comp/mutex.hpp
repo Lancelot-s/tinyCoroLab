@@ -74,11 +74,6 @@ public:
 
     auto lock_guard() noexcept -> guard_awaiter { return {*this}; };
 
-    auto is_unlock() noexcept -> bool
-    {
-        return m_awaiter_head.load(std::memory_order_acquire) == this;
-    }
-
     std::atomic<awaiter_ptr> m_awaiter_head{this};
 };
 
