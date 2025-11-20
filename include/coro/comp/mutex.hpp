@@ -16,6 +16,7 @@
 #include <type_traits>
 
 #include "coro/comp/mutex_guard.hpp"
+#include "coro/context.hpp"
 #include "coro/detail/types.hpp"
 
 namespace coro
@@ -35,33 +36,50 @@ namespace coro
  * @note lab4 and lab5 are free designed lab, leave the interfaces that the test case will use,
  * and then, enjoy yourself!
  */
-
-class context;
-
 // TODO[lab4d]: This mutex is an example to make complie success,
 // You should delete it and add your implementation, I don't care what you do,
 // but keep the member function and construct function's declaration same with example.
 class mutex
 {
+    using awaiter_ptr = void*;
     // Just make lock_guard() compile success
-    struct guard_awaiter : detail::noop_awaiter
+    struct mutex_awaiter
     {
-        guard_awaiter(mutex& m) noexcept : mtx(m) {}
-        auto   await_resume() -> detail::lock_guard<mutex> { return detail::lock_guard<mutex>(mtx); }
-        mutex& mtx;
+        mutex_awaiter(mutex& mtx) noexcept : m_mtx(mtx), m_ctx(local_context()) {};
+        auto await_ready() noexcept -> bool;
+        auto await_suspend(std::coroutine_handle<> handle) noexcept -> bool;
+        auto await_resume() noexcept -> void;
+        mutex_awaiter* m_next{nullptr};
+        mutex& m_mtx;
+        context& m_ctx;
+        std::coroutine_handle<> m_awaiter_coro{nullptr};
+    };
+
+    struct guard_awaiter : mutex_awaiter
+    {
+        using mutex_awaiter::mutex_awaiter;
+        auto   await_resume() -> detail::lock_guard<mutex> { m_ctx.unregister_wait(); return detail::lock_guard<mutex>(m_mtx); }
     };
 
 public:
+    std::mutex m_lock_mutex;
     mutex() noexcept {}
     ~mutex() noexcept {}
 
-    auto try_lock() noexcept -> bool { return {}; }
+    auto try_lock() noexcept -> bool;
 
-    auto lock() noexcept -> detail::noop_awaiter { return {}; };
+    auto lock() noexcept -> mutex::mutex_awaiter;
 
-    auto unlock() noexcept -> void {};
+    auto unlock() noexcept -> void;
 
     auto lock_guard() noexcept -> guard_awaiter { return {*this}; };
+
+    auto is_unlock() noexcept -> bool
+    {
+        return m_awaiter_head.load(std::memory_order_acquire) == this;
+    }
+
+    std::atomic<awaiter_ptr> m_awaiter_head{this};
 };
 
 }; // namespace coro
