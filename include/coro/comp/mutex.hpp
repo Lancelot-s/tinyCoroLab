@@ -41,6 +41,7 @@ namespace coro
 // but keep the member function and construct function's declaration same with example.
 class mutex
 {
+public:
     using awaiter_ptr = void*;
     // Just make lock_guard() compile success
     struct mutex_awaiter
@@ -49,6 +50,8 @@ class mutex
         auto await_ready() noexcept -> bool;
         auto await_suspend(std::coroutine_handle<> handle) noexcept -> bool;
         auto await_resume() noexcept -> void;
+        auto register_waitor() noexcept -> bool;
+        virtual auto resume() noexcept -> void;
         mutex_awaiter* m_next{nullptr};
         mutex& m_mtx;
         context& m_ctx;
@@ -62,18 +65,18 @@ class mutex
     };
 
 public:
-    std::mutex m_lock_mutex;
     mutex() noexcept {}
     ~mutex() noexcept {}
 
     auto try_lock() noexcept -> bool;
 
-    auto lock() noexcept -> mutex::mutex_awaiter;
+    [[CORO_AWAIT_HINT]] auto lock() noexcept -> mutex::mutex_awaiter;
 
     auto unlock() noexcept -> void;
 
-    auto lock_guard() noexcept -> guard_awaiter { return {*this}; };
+    [[CORO_AWAIT_HINT]] auto lock_guard() noexcept -> guard_awaiter { return {*this}; };
 
+private:
     std::atomic<awaiter_ptr> m_awaiter_head{this};
 };
 

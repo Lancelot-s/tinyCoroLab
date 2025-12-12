@@ -20,7 +20,7 @@ namespace coro
 {
 /**
  * @brief Welcome to tinycoro lab5b, in this part you will build the basic coroutine
- * synchronization component¡ª¡ªcondition_variable by modifing condition_variable.hpp
+ * synchronization componentï¿½ï¿½ï¿½ï¿½condition_variable by modifing condition_variable.hpp
  * and condition_variable.cpp. Please ensure you have read the document of lab5b.
  *
  * @warning You should carefully consider whether each implementation should be thread-safe.
@@ -50,15 +50,48 @@ public:
 
     CORO_NO_COPY_MOVE(condition_variable);
 
-    auto wait(mutex& mtx) noexcept -> detail::noop_awaiter { return {}; }
+    struct cv_awaitor : public coro::mutex::mutex_awaiter
+    {
+        cond_var& m_cv;
+        cond_type m_cond;
+        bool m_suspend_state;
+        cv_awaitor(cond_var& cv, mutex& mtx, cond_type& cond) noexcept
+            : mutex::mutex_awaiter(mtx), m_cv(cv), m_cond(cond), m_suspend_state(false) {}
 
-    auto wait(mutex& mtx, cond_type&& cond) noexcept -> detail::noop_awaiter { return {}; }
+        cv_awaitor(cond_var& cv, mutex& mtx) noexcept
+            : mutex::mutex_awaiter(mtx), m_cv(cv), m_suspend_state(false) {}
 
-    auto wait(mutex& mtx, cond_type& cond) noexcept -> detail::noop_awaiter { return {}; }
+        auto await_ready() noexcept -> bool { return false;}
 
-    auto notify_one() noexcept -> void {};
+        auto await_suspend(std::coroutine_handle<> handle) noexcept -> bool;
 
-    auto notify_all() noexcept -> void {};
+        auto await_resume() noexcept -> void;
+
+        auto resume() noexcept -> void override;
+
+        auto register_cv() noexcept -> void;
+
+        auto register_lock() noexcept -> bool;
+
+        auto wake_up() noexcept -> void;
+
+    };
+
+    auto wait(mutex& mtx) noexcept -> cv_awaitor { return cv_awaitor(std::ref(*this), mtx);}
+
+    auto wait(mutex& mtx, cond_type&& cond) noexcept -> cv_awaitor { return cv_awaitor(std::ref(*this), mtx, cond); }
+
+    auto wait(mutex& mtx, cond_type& cond) noexcept -> cv_awaitor { return cv_awaitor(std::ref(*this), mtx, cond); }
+
+    auto notify_one() noexcept -> void;
+
+    auto notify_all() noexcept -> void;
+
+private:
+    //friend cv_awaitor;
+    detail::spinlock m_lock;
+    alignas(config::kCacheLineSize) cv_awaitor* m_head{nullptr};
+    alignas(config::kCacheLineSize) cv_awaitor* m_tail{nullptr};
 };
 
 }; // namespace coro

@@ -55,13 +55,13 @@ auto context::submit_task(std::coroutine_handle<> handle) noexcept -> void
 auto context::register_wait(int register_cnt) noexcept -> void
 {
     // TODO[lab2b]: Add you codes
-    m_register_num.fetch_add(register_cnt, std::memory_order_relaxed);
+    m_register_num.fetch_add(register_cnt, std::memory_order_seq_cst);
 }
 
 auto context::unregister_wait(int register_cnt) noexcept -> void
 {
     // TODO[lab2b]: Add you codes
-    m_register_num.fetch_sub(register_cnt, std::memory_order_relaxed);
+    m_register_num.fetch_sub(register_cnt, std::memory_order_seq_cst);
 }
 
 auto context::run(stop_token token) noexcept -> void
@@ -74,7 +74,7 @@ auto context::run(stop_token token) noexcept -> void
             m_engine.exec_one_task();
         }
 
-        if (m_engine.empty_io() && m_register_num.load(std::memory_order_relaxed) == 0) {
+        if (m_engine.empty_io() && m_register_num.load(std::memory_order_acquire) == 0) {
             if (!m_engine.ready()) {
                 m_stop_cb();
             } else {
