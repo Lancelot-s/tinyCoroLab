@@ -7,7 +7,7 @@ namespace coro
     auto mutex::try_lock() noexcept -> bool
     {
         awaiter_ptr unlocked_state = this;
-        return m_awaiter_head.compare_exchange_weak(unlocked_state, nullptr, std::memory_order_acq_rel);
+        return m_awaiter_head.compare_exchange_strong(unlocked_state, nullptr, std::memory_order_acq_rel);
     }
 
     auto mutex::lock() noexcept -> mutex::mutex_awaiter
